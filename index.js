@@ -234,11 +234,26 @@ function remoteReasoning(raw, fallback) {
   const reasoning = raw.supportsReasoning ?? fallback?.reasoning ?? raw.onlyReasoning === true;
   if (!reasoning) return { reasoning: false };
   const declared = raw.thinkingLevelMap && typeof raw.thinkingLevelMap === "object" ? raw.thinkingLevelMap : undefined;
+  // Current /v3/config declares the selectable levels as `reasoning.supportedEfforts`
+  // instead of an explicit thinkingLevelMap. pi-ai treats xhigh/max as opt-in: a level
+  // absent from the map counts as unsupported, so reading only `effort` silently
+  // dropped `max` for models that advertise it (deepseek-v4.1-flash, glm-5.3,
+  // space-bunny, minimax-m3.1-flash, kimi-k2.8-preview). Mirror the declaration so the
+  // picker offers exactly the levels upstream accepts, and no others.
+  const supported = Array.isArray(raw.reasoning?.supportedEfforts)
+    ? raw.reasoning.supportedEfforts.filter((level) => EFFORTS.includes(level))
+    : undefined;
   const thinkingLevelMap = declared
     ? Object.fromEntries(THINKING_LEVELS.map((level) => [level,
         Object.hasOwn(declared, level) && (typeof declared[level] === "string" || declared[level] === null) ? declared[level] : null]))
-    : { ...(fallback?.thinkingLevelMap ?? {}), ...(raw.onlyReasoning === true ? { off: null } : {}) };
-  const effort = raw.reasoning?.effort;
+    : supported !== undefined && supported.length > 0
+      // `off` stays unsupported: the directory flags the capability via
+      // `canDisableThinking`, but never names the wire value that turns thinking
+      // off, and offering a level that cannot disable it is worse than omitting it.
+      ? Object.fromEntries(THINKING_LEVELS.map((level) => [level, supported.includes(level) ? level : null]))
+      : { ...(fallback?.thinkingLevelMap ?? {}), ...(raw.onlyReasoning === true ? { off: null } : {}) };
+  // Newer directories expose the default as `defaultEffort`; older ones as `effort`.
+  const effort = raw.reasoning?.defaultEffort ?? raw.reasoning?.effort;
   const defaultReasoningEffort = EFFORTS.includes(effort) && thinkingLevelMap[effort] !== null ? effort : undefined;
   return {
     reasoning: true,

@@ -833,6 +833,88 @@ test("模型目录保留逐模型思考能力和默认档位", () => {
   assert.equal(models[1].reasoning, false);
 });
 
+test("模型目录按 supportedEfforts 声明思考档位", () => {
+  const models = __testing.modelsFromConfig({
+    agents: [{ name: "cli", models: ["tiered", "fixed"] }],
+    models: [
+      {
+        id: "tiered",
+        name: "Tiered",
+        maxInputTokens: 1000,
+        maxOutputTokens: 100,
+        supportsReasoning: true,
+        onlyReasoning: true,
+        reasoning: { canDisableThinking: true, defaultEffort: "high", summary: "auto", supportedEfforts: ["low", "high", "max"] },
+      },
+      {
+        id: "fixed",
+        name: "Fixed",
+        maxInputTokens: 1000,
+        maxOutputTokens: 100,
+        supportsReasoning: true,
+        onlyReasoning: true,
+        reasoning: { effort: "medium", summary: "auto" },
+      },
+    ],
+  });
+  const [tiered, fixed] = models;
+
+  // pi-ai treats xhigh/max as opt-in: they only appear when the map names them,
+  // so the directory's declaration has to reach the map or `max` disappears.
+  assert.equal(tiered.thinkingLevelMap.low, "low");
+  assert.equal(tiered.thinkingLevelMap.high, "high");
+  assert.equal(tiered.thinkingLevelMap.max, "max");
+  assert.equal(tiered.thinkingLevelMap.medium, null);
+  assert.equal(tiered.thinkingLevelMap.minimal, null);
+  assert.equal(tiered.thinkingLevelMap.off, null);
+  assert.equal(tiered.defaultReasoningEffort, "high");
+
+  // A model that only names a fixed effort keeps the generic level set.
+  assert.equal(fixed.thinkingLevelMap.xhigh, undefined);
+  assert.equal(fixed.thinkingLevelMap.max, undefined);
+  assert.equal(fixed.thinkingLevelMap.off, null);
+  assert.equal(fixed.defaultReasoningEffort, "medium");
+});
+
+test("非法 supportedEfforts 条目不会泄漏到思考档位", () => {
+  const [model] = __testing.modelsFromConfig({
+    agents: [{ name: "cli", models: ["odd"] }],
+    models: [{
+      id: "odd",
+      maxInputTokens: 1000,
+      maxOutputTokens: 100,
+      supportsReasoning: true,
+      onlyReasoning: true,
+      reasoning: { defaultEffort: "turbo", supportedEfforts: ["low", "turbo", 42, null] },
+    }],
+  });
+
+  assert.equal(model.thinkingLevelMap.low, "low");
+  assert.equal(model.thinkingLevelMap.turbo, undefined);
+  assert.equal(model.thinkingLevelMap.xhigh, null);
+  assert.equal(model.thinkingLevelMap.max, null);
+  // An unsupported default falls back to no explicit default instead of an invalid one.
+  assert.equal(model.defaultReasoningEffort, undefined);
+});
+
+test("空 supportedEfforts 退回逐模型固定的档位集合", () => {
+  const [model] = __testing.modelsFromConfig({
+    agents: [{ name: "cli", models: ["empty"] }],
+    models: [{
+      id: "empty",
+      maxInputTokens: 1000,
+      maxOutputTokens: 100,
+      supportsReasoning: true,
+      onlyReasoning: true,
+      reasoning: { effort: "high", supportedEfforts: [] },
+    }],
+  });
+
+  assert.equal(model.thinkingLevelMap.max, undefined);
+  assert.equal(model.thinkingLevelMap.off, null);
+  assert.equal(model.defaultReasoningEffort, "high");
+});
+
 test("自定义模型可覆盖自己的思考档位", () => {
   const [model] = __testing.selectWorkBuddyModels([], [{
     id: "custom",
